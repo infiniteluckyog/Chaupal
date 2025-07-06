@@ -2,3 +2,4 @@ Flask
 requests
 fake-useragent
 datetime
+gunicorn
