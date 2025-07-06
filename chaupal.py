@@ -1,8 +1,11 @@
 from flask import Flask, request, jsonify
 import requests
 import datetime
+import os
+from fake_useragent import UserAgent
 
 app = Flask(__name__)
+ua = UserAgent()
 
 def proxy_dict(proxy_str):
     try:
@@ -46,7 +49,9 @@ def chaupal_check():
         "password": password
     }
     try:
-        login_resp = requests.post(login_url, json=login_payload, proxies=proxies, timeout=30)
+        login_resp = requests.post(login_url, json=login_payload, proxies=proxies, timeout=30, headers={
+            "User-Agent": ua.random
+        })
         if login_resp.status_code != 200:
             try:
                 error = login_resp.json()
@@ -67,7 +72,9 @@ def chaupal_check():
     info_url = "https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=AIzaSyCy9pm1PChZKOULywz9FBV1QD8MLZFc35c"
     info_payload = {"idToken": id_token}
     try:
-        info_resp = requests.post(info_url, json=info_payload, proxies=proxies, timeout=30)
+        info_resp = requests.post(info_url, json=info_payload, proxies=proxies, timeout=30, headers={
+            "User-Agent": ua.random
+        })
         if info_resp.status_code != 200:
             return jsonify({"status": "success", "message": "Login OK, failed to fetch info"})
         acc_info = info_resp.json()
@@ -83,7 +90,7 @@ def chaupal_check():
         "lang": "en",
         "origin": "https://chaupal.tv",
         "referer": "https://chaupal.tv/",
-        "user-agent": "Mozilla/5.0",
+        "user-agent": ua.random,
         "x-client-version": "1.2.69",
         "x-platform": "WEB"
     }
@@ -108,4 +115,4 @@ def chaupal_check():
     return jsonify(resp)
 
 if __name__ == '__main__':
-    app.run(port=8000)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8000)))
